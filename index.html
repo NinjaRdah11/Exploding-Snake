@@ -77,9 +77,9 @@ function rndCell(exclude=[]) {
 function allCells() { return [...(snake1||[]),...(snake2||[]),...(apples||[])]; }
 
 function init(keepExplosions=false) {
-  snake1=[{x:6,y:12},{x:5,y:12},{x:4,y:12}];
+  snake1=[{x:4,y:6},{x:3,y:6},{x:2,y:6}];
   dir1={x:1,y:0}; nextDir1={x:1,y:0};
-  snake2=[{x:18,y:12},{x:19,y:12},{x:20,y:12}];
+  snake2=[{x:19,y:17},{x:20,y:17},{x:21,y:17}];
   dir2={x:-1,y:0};
   apples=[rndCell([...snake1,...snake2])];
   score1=0; score2=0; particles=[];
@@ -158,38 +158,36 @@ function aiMove(){
 function step(){
   if(!running||paused) return;
 
-  // move AI
-  if(!exploding2&&snake2&&snake2.length>0) aiMove();
-
-  // move player 1
+  // --- move player 1 ---
   if(!exploding1&&snake1&&snake1.length>0){
     dir1={...nextDir1};
     const h1={x:snake1[0].x+dir1.x,y:snake1[0].y+dir1.y};
     const hitWall1=h1.x<0||h1.x>=COLS||h1.y<0||h1.y>=ROWS;
-    const hitSelf1=snake1.some(s=>s.x===h1.x&&s.y===h1.y);
-    const hitAI=snake2&&snake2.some(s=>s.x===h1.x&&s.y===h1.y);
-    if(hitWall1||hitSelf1||hitAI){
-      killSnake1(); return;
+    const hitSelf1=snake1.slice(0,-1).some(s=>s.x===h1.x&&s.y===h1.y);
+    const hitAI=!exploding2&&snake2&&snake2.some(s=>s.x===h1.x&&s.y===h1.y);
+    if(hitWall1||hitSelf1||hitAI){ killSnake1(); }
+    else {
+      snake1.unshift(h1);
+      const ei1=apples.findIndex(a=>a.x===h1.x&&a.y===h1.y);
+      if(ei1!==-1){apples.splice(ei1,1);score1++;document.getElementById('score1').textContent=score1;updateHi();}
+      else snake1.pop();
     }
-    snake1.unshift(h1);
-    const ei1=apples.findIndex(a=>a.x===h1.x&&a.y===h1.y);
-    if(ei1!==-1){apples.splice(ei1,1);score1++;document.getElementById('score1').textContent=score1;updateHi();}
-    else snake1.pop();
   }
 
-  // move AI snake
+  // --- compute AI direction then move ---
   if(!exploding2&&snake2&&snake2.length>0){
+    aiMove();
     const h2={x:snake2[0].x+dir2.x,y:snake2[0].y+dir2.y};
     const hitWall2=h2.x<0||h2.x>=COLS||h2.y<0||h2.y>=ROWS;
-    const hitSelf2=snake2.some(s=>s.x===h2.x&&s.y===h2.y);
-    const hitP1=snake1&&snake1.some(s=>s.x===h2.x&&s.y===h2.y);
-    if(hitWall2||hitSelf2||hitP1){
-      killSnake2(); return;
+    const hitSelf2=snake2.slice(0,-1).some(s=>s.x===h2.x&&s.y===h2.y);
+    const hitP1=!exploding1&&snake1&&snake1.some(s=>s.x===h2.x&&s.y===h2.y);
+    if(hitWall2||hitSelf2||hitP1){ killSnake2(); }
+    else {
+      snake2.unshift(h2);
+      const ei2=apples.findIndex(a=>a.x===h2.x&&a.y===h2.y);
+      if(ei2!==-1){apples.splice(ei2,1);score2++;document.getElementById('score2').textContent=score2;updateHi();}
+      else snake2.pop();
     }
-    snake2.unshift(h2);
-    const ei2=apples.findIndex(a=>a.x===h2.x&&a.y===h2.y);
-    if(ei2!==-1){apples.splice(ei2,1);score2++;document.getElementById('score2').textContent=score2;updateHi();}
-    else snake2.pop();
   }
 
   draw();
@@ -211,7 +209,7 @@ function killSnake1(){
   document.getElementById('msg').textContent='💀 You crashed! Auto-respawning...';
   setTimeout(()=>{
     if(!running) return;
-    snake1=[{x:6,y:12},{x:5,y:12},{x:4,y:12}];
+    snake1=[{x:4,y:6},{x:3,y:6},{x:2,y:6}];
     dir1={x:1,y:0}; nextDir1={x:1,y:0};
     exploding1=false;
     const names=['green','blue','yellow','purple','cyan'];
@@ -227,7 +225,7 @@ function killSnake2(){
   snake2=[];
   setTimeout(()=>{
     if(!running) return;
-    snake2=[{x:18,y:12},{x:19,y:12},{x:20,y:12}];
+    snake2=[{x:19,y:17},{x:20,y:17},{x:21,y:17}];
     dir2={x:-1,y:0};
     exploding2=false;
     pal2Idx++;
@@ -289,7 +287,7 @@ function explodePlayer1(){
 }
 
 function respawnPlayer1(savedApples,savedScore){
-  snake1=[{x:6,y:12},{x:5,y:12},{x:4,y:12}];
+  snake1=[{x:4,y:6},{x:3,y:6},{x:2,y:6}];
   dir1={x:1,y:0}; nextDir1={x:1,y:0};
   apples=savedApples; score1=savedScore;
   exploding1=false; running=true;
