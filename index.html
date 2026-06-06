@@ -3,27 +3,40 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Snake Game</title>
+<title>Snake Game — 2 Players</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #0d1117; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; font-family: sans-serif; color: #ccc; gap: 12px; }
-  #score-bar { display: flex; gap: 24px; font-size: 14px; color: #888; }
+  #score-bar { display: flex; gap: 20px; font-size: 14px; color: #888; flex-wrap: wrap; justify-content: center; }
+  #score-bar .p1 { color: #44ff88; font-weight: 500; }
+  #score-bar .p2 { color: #ff6b6b; font-weight: 500; }
   #score-bar span { font-weight: 500; color: #fff; }
   #game-canvas { border: 1px solid #333; border-radius: 8px; background: #0d1117; cursor: pointer; display: block; }
-  #msg { font-size: 14px; color: #888; min-height: 20px; text-align: center; }
+  #msg { font-size: 14px; color: #aaa; min-height: 20px; text-align: center; max-width: 500px; }
   #controls { display: flex; gap: 8px; }
   button { font-size: 13px; padding: 6px 16px; background: transparent; border: 1px solid #444; color: #ccc; border-radius: 6px; cursor: pointer; }
   button:hover { background: #1a1a2e; }
+  #legend { font-size: 12px; color: #555; text-align: center; }
 </style>
 </head>
 <body>
-<div id="score-bar">Score: <span id="score">0</span> &nbsp;|&nbsp; High Score: <span id="hi">0</span> &nbsp;|&nbsp; Explosions: <span id="exp-count">0</span></div>
+<div id="score-bar">
+  <span class="p1">🟢 You: <span id="score1">0</span></span>
+  <span>|</span>
+  <span class="p2">🔴 AI: <span id="score2">0</span></span>
+  <span>|</span>
+  Explosions: <span id="exp-count">0</span>
+  <span>|</span>
+  Hi: <span id="hi">0</span>
+</div>
 <canvas id="game-canvas" width="480" height="480"></canvas>
 <div id="msg">Press arrow keys or WASD to start</div>
 <div id="controls">
   <button id="btn-start">New game</button>
   <button id="btn-pause">Pause</button>
 </div>
+<div id="legend">Arrow keys / WASD = you &nbsp;·&nbsp; Click your snake to 💥 &amp; respawn</div>
+
 <script>
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
@@ -31,97 +44,316 @@ const CELL = 20, COLS = 24, ROWS = 24;
 const W = COLS * CELL, H = ROWS * CELL;
 canvas.width = W; canvas.height = H;
 
-const PALETTES = [
-  { head: '#44ff88', body: (t) => `hsl(${130 - t*30},${90-t*20}%,${55-t*15}%)` },
-  { head: '#ff6b6b', body: (t) => `hsl(${0   - t*10},${90-t*20}%,${60-t*15}%)` },
-  { head: '#6baaff', body: (t) => `hsl(${210 - t*20},${90-t*20}%,${60-t*15}%)` },
-  { head: '#ff9f43', body: (t) => `hsl(${35  - t*10},${95-t*20}%,${58-t*15}%)` },
-  { head: '#e056fd', body: (t) => `hsl(${290 - t*20},${90-t*20}%,${62-t*15}%)` },
-  { head: '#00d2d3', body: (t) => `hsl(${180 - t*20},${90-t*20}%,${55-t*15}%)` },
-  { head: '#ffd32a', body: (t) => `hsl(${48  - t*10},${95-t*20}%,${56-t*15}%)` },
-  { head: '#ff4dcd', body: (t) => `hsl(${315 - t*15},${90-t*20}%,${62-t*15}%)` },
+// Player palettes (cycle on explosion)
+const P1_PALETTES = [
+  { head: '#44ff88', body: t => `hsl(${130-t*30},${90-t*20}%,${55-t*15}%)` },
+  { head: '#6baaff', body: t => `hsl(${210-t*20},${90-t*20}%,${60-t*15}%)` },
+  { head: '#ffd32a', body: t => `hsl(${48-t*10},${95-t*20}%,${56-t*15}%)` },
+  { head: '#e056fd', body: t => `hsl(${290-t*20},${90-t*20}%,${62-t*15}%)` },
+  { head: '#00d2d3', body: t => `hsl(${180-t*20},${90-t*20}%,${55-t*15}%)` },
+];
+const P2_PALETTES = [
+  { head: '#ff6b6b', body: t => `hsl(${0-t*10},${90-t*20}%,${60-t*15}%)` },
+  { head: '#ff9f43', body: t => `hsl(${35-t*10},${95-t*20}%,${58-t*15}%)` },
+  { head: '#ff4dcd', body: t => `hsl(${315-t*15},${90-t*20}%,${62-t*15}%)` },
+  { head: '#a29bfe', body: t => `hsl(${250-t*15},${85-t*20}%,${65-t*15}%)` },
 ];
 
-let snake, dir, nextDir, apples, score, hiScore=0, running=false, paused=false;
-let particles=[], gameLoop, appleTimer, exploding=false, explosionCount=0, paletteIdx=0;
+let snake1, dir1, nextDir1;
+let snake2, dir2;
+let apples, score1, score2, hiScore=0;
+let running=false, paused=false;
+let particles=[], gameLoop, appleTimer;
+let exploding1=false, exploding2=false;
+let explosionCount=0, pal1Idx=0, pal2Idx=0;
 
 function rndCell(exclude=[]) {
-  let pos;
-  do { pos = {x:Math.floor(Math.random()*COLS), y:Math.floor(Math.random()*ROWS)}; }
-  while (exclude.some(e=>e.x===pos.x&&e.y===pos.y));
+  let pos, tries=0;
+  do { pos={x:Math.floor(Math.random()*COLS),y:Math.floor(Math.random()*ROWS)}; tries++; }
+  while(tries<500 && exclude.some(e=>e.x===pos.x&&e.y===pos.y));
   return pos;
 }
 
+function allCells() { return [...(snake1||[]),...(snake2||[]),...(apples||[])]; }
+
 function init(keepExplosions=false) {
-  snake = [{x:12,y:12},{x:11,y:12},{x:10,y:12}];
-  dir = {x:1,y:0}; nextDir = {x:1,y:0};
-  apples = [rndCell(snake)];
-  score = 0; particles = []; exploding = false;
-  if (!keepExplosions) { explosionCount=0; paletteIdx=0; }
-  document.getElementById('score').textContent = 0;
-  document.getElementById('exp-count').textContent = explosionCount;
-  if (gameLoop) clearInterval(gameLoop);
-  if (appleTimer) clearInterval(appleTimer);
-  running = true; paused = false;
-  document.getElementById('btn-pause').textContent = 'Pause';
-  document.getElementById('msg').textContent = 'Steer with arrows/WASD — click the snake to 💥 & respawn!';
-  gameLoop = setInterval(step, 120);
-  appleTimer = setInterval(spawnApple, 2000);
+  snake1=[{x:6,y:12},{x:5,y:12},{x:4,y:12}];
+  dir1={x:1,y:0}; nextDir1={x:1,y:0};
+  snake2=[{x:18,y:12},{x:19,y:12},{x:20,y:12}];
+  dir2={x:-1,y:0};
+  apples=[rndCell([...snake1,...snake2])];
+  score1=0; score2=0; particles=[];
+  exploding1=false; exploding2=false;
+  if(!keepExplosions){explosionCount=0;pal1Idx=0;pal2Idx=0;}
+  document.getElementById('score1').textContent=0;
+  document.getElementById('score2').textContent=0;
+  document.getElementById('exp-count').textContent=explosionCount;
+  if(gameLoop) clearInterval(gameLoop);
+  if(appleTimer) clearInterval(appleTimer);
+  running=true; paused=false;
+  document.getElementById('btn-pause').textContent='Pause';
+  document.getElementById('msg').textContent='You = green (arrows/WASD) · AI = red · Click your snake to 💥 respawn!';
+  gameLoop=setInterval(step,120);
+  appleTimer=setInterval(spawnApple,2000);
 }
 
-function spawnApple() {
-  if (!running||paused) return;
-  if (apples.length<8) apples.push(rndCell([...snake,...apples]));
+function spawnApple(){
+  if(!running||paused) return;
+  if(apples.length<8) apples.push(rndCell(allCells()));
 }
 
-function step() {
-  if (!running||paused||exploding) return;
-  dir = {...nextDir};
-  const head = {x:snake[0].x+dir.x, y:snake[0].y+dir.y};
-  if (head.x<0||head.x>=COLS||head.y<0||head.y>=ROWS||snake.some(s=>s.x===head.x&&s.y===head.y)) {
-    endGame('💀 Game over! Score: '+score); return;
-  }
-  snake.unshift(head);
-  const eatIdx = apples.findIndex(a=>a.x===head.x&&a.y===head.y);
-  if (eatIdx!==-1) {
-    apples.splice(eatIdx,1); score++;
-    document.getElementById('score').textContent = score;
-    if (score>hiScore){hiScore=score;document.getElementById('hi').textContent=hiScore;}
-  } else { snake.pop(); }
-  draw();
-}
+// ── AI pathfinding (BFS toward nearest apple, avoids walls + both snakes) ──
+function aiMove(){
+  if(!snake2||snake2.length===0) return;
+  const head=snake2[0];
+  if(apples.length===0) return;
 
-function endGame(msg) {
-  running=false; clearInterval(gameLoop); clearInterval(appleTimer);
-  document.getElementById('msg').textContent = msg;
-  draw();
-}
-
-function getPalette() { return PALETTES[paletteIdx % PALETTES.length]; }
-
-function draw() {
-  ctx.clearRect(0,0,W,H);
-  ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,W,H);
-  ctx.strokeStyle='rgba(255,255,255,0.03)';
-  for(let x=0;x<COLS;x++) for(let y=0;y<ROWS;y++) ctx.strokeRect(x*CELL,y*CELL,CELL,CELL);
+  // pick nearest apple
+  let target=apples[0];
+  let best=Infinity;
   apples.forEach(a=>{
-    ctx.fillStyle='#ff4455'; ctx.beginPath();
-    ctx.arc(a.x*CELL+CELL/2,a.y*CELL+CELL/2,CELL/2-2,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle='#33cc66'; ctx.fillRect(a.x*CELL+CELL/2-1,a.y*CELL+2,3,5);
+    const d=Math.abs(a.x-head.x)+Math.abs(a.y-head.y);
+    if(d<best){best=d;target=a;}
   });
-  const pal = getPalette();
-  snake.forEach((s,i)=>{
-    const t=i/Math.max(snake.length-1,1);
-    ctx.fillStyle = i===0 ? pal.head : pal.body(t);
-    roundRect(ctx,s.x*CELL+1,s.y*CELL+1,CELL-2,CELL-2,i===0?4:3);
-    ctx.fill();
-    if (i===0) {
-      ctx.fillStyle='#0d1117';
-      const eyeOff = dir.x!==0?[{x:5,y:4},{x:5,y:CELL-6}]:[{x:4,y:5},{x:CELL-6,y:5}];
-      eyeOff.forEach(e=>{ctx.beginPath();ctx.arc(s.x*CELL+e.x,s.y*CELL+e.y,2,0,Math.PI*2);ctx.fill();});
+
+  // BFS
+  const blocked=new Set();
+  // avoid snake bodies (exclude last tail cell — it will move)
+  const s1body=snake1.slice(0,snake1.length-1);
+  const s2body=snake2.slice(0,snake2.length-1);
+  [...s1body,...s2body].forEach(s=>blocked.add(s.x+','+s.y));
+
+  const dirs=[{x:0,y:-1},{x:0,y:1},{x:-1,y:0},{x:1,y:0}];
+  const queue=[{x:head.x,y:head.y,path:[]}];
+  const visited=new Set([head.x+','+head.y]);
+  let found=null;
+
+  outer: while(queue.length){
+    const cur=queue.shift();
+    for(const d of dirs){
+      const nx=cur.x+d.x, ny=cur.y+d.y;
+      const key=nx+','+ny;
+      if(nx<0||nx>=COLS||ny<0||ny>=ROWS||blocked.has(key)||visited.has(key)) continue;
+      visited.add(key);
+      const newPath=[...cur.path,d];
+      if(nx===target.x&&ny===target.y){found=newPath;break outer;}
+      queue.push({x:nx,y:ny,path:newPath});
+    }
+  }
+
+  if(found&&found.length>0){
+    const step=found[0];
+    // don't reverse
+    if(step.x!==-dir2.x||step.y!==-dir2.y) dir2={...step};
+  } else {
+    // fallback: pick any safe direction
+    const safe=dirs.filter(d=>{
+      const nx=head.x+d.x,ny=head.y+d.y;
+      return nx>=0&&nx<COLS&&ny>=0&&ny<ROWS&&!blocked.has(nx+','+ny)&&!(d.x===-dir2.x&&d.y===-dir2.y);
+    });
+    if(safe.length>0) dir2={...safe[Math.floor(Math.random()*safe.length)]};
+  }
+}
+
+function step(){
+  if(!running||paused) return;
+
+  // move AI
+  if(!exploding2&&snake2&&snake2.length>0) aiMove();
+
+  // move player 1
+  if(!exploding1&&snake1&&snake1.length>0){
+    dir1={...nextDir1};
+    const h1={x:snake1[0].x+dir1.x,y:snake1[0].y+dir1.y};
+    const hitWall1=h1.x<0||h1.x>=COLS||h1.y<0||h1.y>=ROWS;
+    const hitSelf1=snake1.some(s=>s.x===h1.x&&s.y===h1.y);
+    const hitAI=snake2&&snake2.some(s=>s.x===h1.x&&s.y===h1.y);
+    if(hitWall1||hitSelf1||hitAI){
+      killSnake1(); return;
+    }
+    snake1.unshift(h1);
+    const ei1=apples.findIndex(a=>a.x===h1.x&&a.y===h1.y);
+    if(ei1!==-1){apples.splice(ei1,1);score1++;document.getElementById('score1').textContent=score1;updateHi();}
+    else snake1.pop();
+  }
+
+  // move AI snake
+  if(!exploding2&&snake2&&snake2.length>0){
+    const h2={x:snake2[0].x+dir2.x,y:snake2[0].y+dir2.y};
+    const hitWall2=h2.x<0||h2.x>=COLS||h2.y<0||h2.y>=ROWS;
+    const hitSelf2=snake2.some(s=>s.x===h2.x&&s.y===h2.y);
+    const hitP1=snake1&&snake1.some(s=>s.x===h2.x&&s.y===h2.y);
+    if(hitWall2||hitSelf2||hitP1){
+      killSnake2(); return;
+    }
+    snake2.unshift(h2);
+    const ei2=apples.findIndex(a=>a.x===h2.x&&a.y===h2.y);
+    if(ei2!==-1){apples.splice(ei2,1);score2++;document.getElementById('score2').textContent=score2;updateHi();}
+    else snake2.pop();
+  }
+
+  draw();
+}
+
+function updateHi(){
+  const best=Math.max(score1,score2);
+  if(best>hiScore){hiScore=best;document.getElementById('hi').textContent=hiScore;}
+}
+
+function killSnake1(){
+  if(exploding1) return;
+  exploding1=true;
+  burstParticles(snake1, P1_PALETTES[pal1Idx%P1_PALETTES.length]);
+  snake1=[];
+  explosionCount++;
+  pal1Idx++;
+  document.getElementById('exp-count').textContent=explosionCount;
+  document.getElementById('msg').textContent='💀 You crashed! Auto-respawning...';
+  setTimeout(()=>{
+    if(!running) return;
+    snake1=[{x:6,y:12},{x:5,y:12},{x:4,y:12}];
+    dir1={x:1,y:0}; nextDir1={x:1,y:0};
+    exploding1=false;
+    const names=['green','blue','yellow','purple','cyan'];
+    document.getElementById('msg').textContent=`✨ Back as ${names[pal1Idx%names.length]}!`;
+    flashRespawn(snake1, P1_PALETTES[pal1Idx%P1_PALETTES.length]);
+  },1200);
+}
+
+function killSnake2(){
+  if(exploding2) return;
+  exploding2=true;
+  burstParticles(snake2, P2_PALETTES[pal2Idx%P2_PALETTES.length]);
+  snake2=[];
+  setTimeout(()=>{
+    if(!running) return;
+    snake2=[{x:18,y:12},{x:19,y:12},{x:20,y:12}];
+    dir2={x:-1,y:0};
+    exploding2=false;
+    pal2Idx++;
+    const names=['red','orange','pink','purple'];
+    document.getElementById('msg').textContent=`🤖 AI respawned as ${names[pal2Idx%names.length]}!`;
+    flashRespawn(snake2, P2_PALETTES[pal2Idx%P2_PALETTES.length]);
+  },1200);
+}
+
+function burstParticles(sn, pal){
+  sn.forEach(s=>{
+    for(let i=0;i<8;i++){
+      const angle=Math.random()*Math.PI*2, speed=1.5+Math.random()*4;
+      particles.push({
+        x:s.x*CELL+CELL/2,y:s.y*CELL+CELL/2,
+        vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,
+        r:3+Math.random()*5,life:1,decay:0.018+Math.random()*0.02,
+        color:i<4?pal.head:pal.body(Math.random())
+      });
     }
   });
+}
+
+function flashRespawn(sn, pal){
+  let fc=0;
+  function fl(){
+    if(fc>6) return;
+    sn.forEach(s=>{
+      ctx.fillStyle=fc%2===0?pal.head:'rgba(255,255,255,0.85)';
+      roundRect(ctx,s.x*CELL+1,s.y*CELL+1,CELL-2,CELL-2,3);ctx.fill();
+    });
+    fc++; setTimeout(fl,80);
+  }
+  fl();
+}
+
+// Manual explosion when player clicks their own snake
+function explodePlayer1(){
+  if(exploding1||!running) return;
+  exploding1=true;
+  clearInterval(gameLoop); clearInterval(appleTimer);
+  burstParticles(snake1, P1_PALETTES[pal1Idx%P1_PALETTES.length]);
+  const savedApples=[...apples], savedScore=score1;
+  snake1=[];
+  explosionCount++; pal1Idx++;
+  document.getElementById('exp-count').textContent=explosionCount;
+  document.getElementById('msg').textContent='💥 BOOM! Respawning in a new color...';
+
+  function animEx(){
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle='#0d1117';ctx.fillRect(0,0,W,H);
+    drawGrid(); drawApples(); drawSnake2(); drawParticles();
+    particles.forEach(p=>{p.x+=p.vx;p.y+=p.vy;p.vy+=0.1;p.life-=p.decay;});
+    particles=particles.filter(p=>p.life>0);
+    if(particles.length>0) requestAnimationFrame(animEx);
+    else respawnPlayer1(savedApples,savedScore);
+  }
+  animEx();
+}
+
+function respawnPlayer1(savedApples,savedScore){
+  snake1=[{x:6,y:12},{x:5,y:12},{x:4,y:12}];
+  dir1={x:1,y:0}; nextDir1={x:1,y:0};
+  apples=savedApples; score1=savedScore;
+  exploding1=false; running=true;
+  const names=['green','blue','yellow','purple','cyan'];
+  document.getElementById('msg').textContent=`✨ Back as ${names[pal1Idx%names.length]}! Score: ${score1}`;
+  draw();
+  flashRespawn(snake1, P1_PALETTES[pal1Idx%P1_PALETTES.length]);
+  gameLoop=setInterval(step,120);
+  appleTimer=setInterval(spawnApple,2000);
+}
+
+// ── Drawing helpers ──
+function drawGrid(){
+  ctx.strokeStyle='rgba(255,255,255,0.03)';
+  for(let x=0;x<COLS;x++) for(let y=0;y<ROWS;y++) ctx.strokeRect(x*CELL,y*CELL,CELL,CELL);
+}
+function drawApples(){
+  apples.forEach(a=>{
+    ctx.fillStyle='#ff4455';ctx.beginPath();
+    ctx.arc(a.x*CELL+CELL/2,a.y*CELL+CELL/2,CELL/2-2,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#33cc66';ctx.fillRect(a.x*CELL+CELL/2-1,a.y*CELL+2,3,5);
+  });
+}
+function drawSnake(sn, dir, pal){
+  sn.forEach((s,i)=>{
+    const t=i/Math.max(sn.length-1,1);
+    ctx.fillStyle=i===0?pal.head:pal.body(t);
+    roundRect(ctx,s.x*CELL+1,s.y*CELL+1,CELL-2,CELL-2,i===0?4:3);ctx.fill();
+    if(i===0&&dir){
+      ctx.fillStyle='#0d1117';
+      const eyeOff=dir.x!==0?[{x:5,y:4},{x:5,y:CELL-6}]:[{x:4,y:5},{x:CELL-6,y:5}];
+      eyeOff.forEach(e=>{ctx.beginPath();ctx.arc(s.x*CELL+e.x,s.y*CELL+e.y,2,0,Math.PI*2);ctx.fill();});
+      // AI badge
+    }
+  });
+}
+function drawSnake2(){
+  if(snake2&&snake2.length>0){
+    drawSnake(snake2, dir2, P2_PALETTES[pal2Idx%P2_PALETTES.length]);
+    // "AI" label above head
+    const h=snake2[0];
+    ctx.fillStyle='rgba(255,107,107,0.85)';
+    ctx.font='bold 9px sans-serif';
+    ctx.textAlign='center';
+    ctx.fillText('AI',h.x*CELL+CELL/2,h.y*CELL-2);
+    ctx.textAlign='left';
+  }
+}
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='#0d1117';ctx.fillRect(0,0,W,H);
+  drawGrid(); drawApples();
+  if(snake1&&snake1.length>0) drawSnake(snake1,dir1,P1_PALETTES[pal1Idx%P1_PALETTES.length]);
+  drawSnake2();
   drawParticles();
+}
+
+function drawParticles(){
+  particles.forEach(p=>{
+    ctx.save();ctx.globalAlpha=Math.max(0,p.life);
+    ctx.fillStyle=p.color;ctx.beginPath();
+    ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fill();ctx.restore();
+  });
 }
 
 function roundRect(ctx,x,y,w,h,r){
@@ -130,103 +362,30 @@ function roundRect(ctx,x,y,w,h,r){
   ctx.arcTo(x,y+h,x,y+h-r,r);ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);ctx.closePath();
 }
 
-function explodeSnake() {
-  if (exploding||!running) return;
-  exploding=true;
-  clearInterval(gameLoop); clearInterval(appleTimer);
-  const pal = getPalette();
-  snake.forEach(s=>{
-    for(let i=0;i<10;i++){
-      const angle=Math.random()*Math.PI*2, speed=1.5+Math.random()*4;
-      particles.push({
-        x:s.x*CELL+CELL/2, y:s.y*CELL+CELL/2,
-        vx:Math.cos(angle)*speed, vy:Math.sin(angle)*speed,
-        r:3+Math.random()*5, life:1, decay:0.015+Math.random()*0.02,
-        color: i<5 ? pal.head : pal.body(Math.random())
-      });
-    }
-  });
-  const savedApples = [...apples];
-  const savedScore = score;
-  snake=[];
-  explosionCount++;
-  paletteIdx++;
-  document.getElementById('exp-count').textContent=explosionCount;
-  document.getElementById('msg').textContent='💥 BOOM! Respawning in a new color...';
-  function animExplode(){
-    ctx.clearRect(0,0,W,H);
-    ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,W,H);
-    ctx.strokeStyle='rgba(255,255,255,0.03)';
-    for(let x=0;x<COLS;x++) for(let y=0;y<ROWS;y++) ctx.strokeRect(x*CELL,y*CELL,CELL,CELL);
-    savedApples.forEach(a=>{
-      ctx.fillStyle='#ff4455'; ctx.beginPath();
-      ctx.arc(a.x*CELL+CELL/2,a.y*CELL+CELL/2,CELL/2-2,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='#33cc66'; ctx.fillRect(a.x*CELL+CELL/2-1,a.y*CELL+2,3,5);
-    });
-    drawParticles();
-    particles.forEach(p=>{p.x+=p.vx;p.y+=p.vy;p.vy+=0.1;p.life-=p.decay;});
-    particles=particles.filter(p=>p.life>0);
-    if(particles.length>0){ requestAnimationFrame(animExplode); }
-    else { respawn(savedApples, savedScore); }
-  }
-  animExplode();
-}
-
-function respawn(savedApples, savedScore) {
-  snake=[{x:12,y:12},{x:11,y:12},{x:10,y:12}];
-  dir={x:1,y:0}; nextDir={x:1,y:0};
-  apples=savedApples;
-  score=savedScore;
-  exploding=false;
-  running=true;
-  const names=['green','red','blue','orange','purple','cyan','yellow','pink'];
-  document.getElementById('msg').textContent=`✨ Back as ${names[paletteIdx % names.length]}! Keep going — score: ${score}`;
-  draw();
-  let flashCount=0;
-  function flashIn(){
-    if(flashCount>6){ gameLoop=setInterval(step,120); appleTimer=setInterval(spawnApple,2000); return; }
-    snake.forEach(s=>{
-      const pal=getPalette();
-      ctx.fillStyle=flashCount%2===0?pal.head:'rgba(255,255,255,0.8)';
-      roundRect(ctx,s.x*CELL+1,s.y*CELL+1,CELL-2,CELL-2,3); ctx.fill();
-    });
-    flashCount++;
-    setTimeout(flashIn,80);
-  }
-  flashIn();
-}
-
-function drawParticles(){
-  particles.forEach(p=>{
-    ctx.save(); ctx.globalAlpha=Math.max(0,p.life);
-    ctx.fillStyle=p.color; ctx.beginPath();
-    ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill(); ctx.restore();
-  });
-}
-
+// ── Input ──
 canvas.addEventListener('click', e=>{
   const rect=canvas.getBoundingClientRect();
   const mx=(e.clientX-rect.left)*(W/rect.width), my=(e.clientY-rect.top)*(H/rect.height);
   const cx=Math.floor(mx/CELL), cy=Math.floor(my/CELL);
-  if(snake&&snake.some(s=>s.x===cx&&s.y===cy)){ explodeSnake(); return; }
-  if(!running&&!exploding) init();
+  if(snake1&&snake1.some(s=>s.x===cx&&s.y===cy)){explodePlayer1();return;}
+  if(!running) init();
 });
 
 document.addEventListener('keydown', e=>{
   const map={ArrowUp:{x:0,y:-1},ArrowDown:{x:0,y:1},ArrowLeft:{x:-1,y:0},ArrowRight:{x:1,y:0},
              w:{x:0,y:-1},s:{x:0,y:1},a:{x:-1,y:0},d:{x:1,y:0}};
   const nd=map[e.key]; if(!nd) return;
-  if(!running&&!exploding){init();return;}
-  if(dir&&nd.x===-dir.x&&nd.y===-dir.y) return;
-  nextDir=nd; e.preventDefault();
+  if(!running){init();return;}
+  if(dir1&&nd.x===-dir1.x&&nd.y===-dir1.y) return;
+  nextDir1=nd; e.preventDefault();
 });
 
-document.getElementById('btn-start').addEventListener('click', ()=>init(false));
-document.getElementById('btn-pause').addEventListener('click', ()=>{
-  if(!running||exploding) return;
+document.getElementById('btn-start').addEventListener('click',()=>init(false));
+document.getElementById('btn-pause').addEventListener('click',()=>{
+  if(!running) return;
   paused=!paused;
   document.getElementById('btn-pause').textContent=paused?'Resume':'Pause';
-  document.getElementById('msg').textContent=paused?'Paused':'Steer with arrows/WASD — click the snake to 💥 & respawn!';
+  document.getElementById('msg').textContent=paused?'Paused — press Resume to continue':'You = green (arrows/WASD) · AI = red · Click your snake to 💥!';
 });
 
 draw();
