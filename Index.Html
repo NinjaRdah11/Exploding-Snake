@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Snake Game</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d1117; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; font-family: sans-serif; color: #ccc; gap: 12px; }
+  #score-bar { display: flex; gap: 24px; font-size: 14px; color: #888; }
+  #score-bar span { font-weight: 500; color: #fff; }
+  #game-canvas { border: 1px solid #333; border-radius: 8px; background: #0d1117; cursor: pointer; display: block; }
+  #msg { font-size: 14px; color: #888; min-height: 20px; text-align: center; }
+  #controls { display: flex; gap: 8px; }
+  button { font-size: 13px; padding: 6px 16px; background: transparent; border: 1px solid #444; color: #ccc; border-radius: 6px; cursor: pointer; }
+  button:hover { background: #1a1a2e; }
+</style>
+</head>
+<body>
+<div id="score-bar">Score: <span id="score">0</span> &nbsp;|&nbsp; High Score: <span id="hi">0</span> &nbsp;|&nbsp; Explosions: <span id="exp-count">0</span></div>
+<canvas id="game-canvas" width="480" height="480"></canvas>
+<div id="msg">Press arrow keys or WASD to start</div>
+<div id="controls">
+  <button id="btn-start">New game</button>
+  <button id="btn-pause">Pause</button>
+</div>
+<script>
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+const CELL = 20, COLS = 24, ROWS = 24;
+const W = COLS * CELL, H = ROWS * CELL;
+canvas.width = W; canvas.height = H;
+
+const PALETTES = [
+  { head: '#44ff88', body: (t) => `hsl(${130 - t*30},${90-t*20}%,${55-t*15}%)` },
+  { head: '#ff6b6b', body: (t) => `hsl(${0   - t*10},${90-t*20}%,${60-t*15}%)` },
+  { head: '#6baaff', body: (t) => `hsl(${210 - t*20},${90-t*20}%,${60-t*15}%)` },
+  { head: '#ff9f43', body: (t) => `hsl(${35  - t*10},${95-t*20}%,${58-t*15}%)` },
+  { head: '#e056fd', body: (t) => `hsl(${290 - t*20},${90-t*20}%,${62-t*15}%)` },
+  { head: '#00d2d3', body: (t) => `hsl(${180 - t*20},${90-t*20}%,${55-t*15}%)` },
+  { head: '#ffd32a', body: (t) => `hsl(${48  - t*10},${95-t*20}%,${56-t*15}%)` },
+  { head: '#ff4dcd', body: (t) => `hsl(${315 - t*15},${90-t*20}%,${62-t*15}%)` },
+];
+
+let snake, dir, nextDir, apples, score, hiScore=0, running=false, paused=false;
+let particles=[], gameLoop, appleTimer, exploding=false, explosionCount=0, paletteIdx=0;
+
+function rndCell(exclude=[]) {
+  let pos;
+  do { pos = {x:Math.floor(Math.random()*COLS), y:Math.floor(Math.random()*ROWS)}; }
+  while (exclude.some(e=>e.x===pos.x&&e.y===pos.y));
+  return pos;
+}
+
+function init(keepExplosions=false) {
+  snake = [{x:12,y:12},{x:11,y:12},{x:10,y:12}];
+  dir = {x:1,y:0}; nextDir = {x:1,y:0};
+  apples = [rndCell(snake)];
+  score = 0; particles = []; exploding = false;
+  if (!keepExplosions) { explosionCount=0; paletteIdx=0; }
+  document.getElementById('score').textContent = 0;
+  document.getElementById('exp-count').textContent = explosionCount;
+  if (gameLoop) clearInterval(gameLoop);
+  if (appleTimer) clearInterval(appleTimer);
+  running = true; paused = false;
+  document.getElementById('btn-pause').textContent = 'Pause';
+  document.getElementById('msg').textContent = 'Steer with arrows/WASD — click the snake to 💥 & respawn!';
+  gameLoop = setInterval(step, 120);
+  appleTimer = setInterval(spawnApple, 2000);
+}
+
+function spawnApple() {
+  if (!running||paused) return;
+  if (apples.length<8) apples.push(rndCell([...snake,...apples]));
+}
+
+function step() {
+  if (!running||paused||exploding) return;
+  dir = {...nextDir};
+  const head = {x:snake[0].x+dir.x, y:snake[0].y+dir.y};
+  if (head.x<0||head.x>=COLS||head.y<0||head.y>=ROWS||snake.some(s=>s.x===head.x&&s.y===head.y)) {
+    endGame('💀 Game over! Score: '+score); return;
+  }
+  snake.unshift(head);
+  const eatIdx = apples.findIndex(a=>a.x===head.x&&a.y===head.y);
+  if (eatIdx!==-1) {
+    apples.splice(eatIdx,1); score++;
+    document.getElementById('score').textContent = score;
+    if (score>hiScore){hiScore=score;document.getElementById('hi').textContent=hiScore;}
+  } else { snake.pop(); }
+  draw();
+}
+
+function endGame(msg) {
+  running=false; clearInterval(gameLoop); clearInterval(appleTimer);
+  document.getElementById('msg').textContent = msg;
+  draw();
+}
+
+function getPalette() { return PALETTES[paletteIdx % PALETTES.length]; }
+
+function draw() {
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle='rgba(255,255,255,0.03)';
+  for(let x=0;x<COLS;x++) for(let y=0;y<ROWS;y++) ctx.strokeRect(x*CELL,y*CELL,CELL,CELL);
+  apples.forEach(a=>{
+    ctx.fillStyle='#ff4455'; ctx.beginPath();
+    ctx.arc(a.x*CELL+CELL/2,a.y*CELL+CELL/2,CELL/2-2,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#33cc66'; ctx.fillRect(a.x*CELL+CELL/2-1,a.y*CELL+2,3,5);
+  });
+  const pal = getPalette();
+  snake.forEach((s,i)=>{
+    const t=i/Math.max(snake.length-1,1);
+    ctx.fillStyle = i===0 ? pal.head : pal.body(t);
+    roundRect(ctx,s.x*CELL+1,s.y*CELL+1,CELL-2,CELL-2,i===0?4:3);
+    ctx.fill();
+    if (i===0) {
+      ctx.fillStyle='#0d1117';
+      const eyeOff = dir.x!==0?[{x:5,y:4},{x:5,y:CELL-6}]:[{x:4,y:5},{x:CELL-6,y:5}];
+      eyeOff.forEach(e=>{ctx.beginPath();ctx.arc(s.x*CELL+e.x,s.y*CELL+e.y,2,0,Math.PI*2);ctx.fill();});
+    }
+  });
+  drawParticles();
+}
+
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);
+  ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);ctx.lineTo(x+r,y+h);
+  ctx.arcTo(x,y+h,x,y+h-r,r);ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);ctx.closePath();
+}
+
+function explodeSnake() {
+  if (exploding||!running) return;
+  exploding=true;
+  clearInterval(gameLoop); clearInterval(appleTimer);
+  const pal = getPalette();
+  snake.forEach(s=>{
+    for(let i=0;i<10;i++){
+      const angle=Math.random()*Math.PI*2, speed=1.5+Math.random()*4;
+      particles.push({
+        x:s.x*CELL+CELL/2, y:s.y*CELL+CELL/2,
+        vx:Math.cos(angle)*speed, vy:Math.sin(angle)*speed,
+        r:3+Math.random()*5, life:1, decay:0.015+Math.random()*0.02,
+        color: i<5 ? pal.head : pal.body(Math.random())
+      });
+    }
+  });
+  const savedApples = [...apples];
+  const savedScore = score;
+  snake=[];
+  explosionCount++;
+  paletteIdx++;
+  document.getElementById('exp-count').textContent=explosionCount;
+  document.getElementById('msg').textContent='💥 BOOM! Respawning in a new color...';
+  function animExplode(){
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,W,H);
+    ctx.strokeStyle='rgba(255,255,255,0.03)';
+    for(let x=0;x<COLS;x++) for(let y=0;y<ROWS;y++) ctx.strokeRect(x*CELL,y*CELL,CELL,CELL);
+    savedApples.forEach(a=>{
+      ctx.fillStyle='#ff4455'; ctx.beginPath();
+      ctx.arc(a.x*CELL+CELL/2,a.y*CELL+CELL/2,CELL/2-2,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#33cc66'; ctx.fillRect(a.x*CELL+CELL/2-1,a.y*CELL+2,3,5);
+    });
+    drawParticles();
+    particles.forEach(p=>{p.x+=p.vx;p.y+=p.vy;p.vy+=0.1;p.life-=p.decay;});
+    particles=particles.filter(p=>p.life>0);
+    if(particles.length>0){ requestAnimationFrame(animExplode); }
+    else { respawn(savedApples, savedScore); }
+  }
+  animExplode();
+}
+
+function respawn(savedApples, savedScore) {
+  snake=[{x:12,y:12},{x:11,y:12},{x:10,y:12}];
+  dir={x:1,y:0}; nextDir={x:1,y:0};
+  apples=savedApples;
+  score=savedScore;
+  exploding=false;
+  running=true;
+  const names=['green','red','blue','orange','purple','cyan','yellow','pink'];
+  document.getElementById('msg').textContent=`✨ Back as ${names[paletteIdx % names.length]}! Keep going — score: ${score}`;
+  draw();
+  let flashCount=0;
+  function flashIn(){
+    if(flashCount>6){ gameLoop=setInterval(step,120); appleTimer=setInterval(spawnApple,2000); return; }
+    snake.forEach(s=>{
+      const pal=getPalette();
+      ctx.fillStyle=flashCount%2===0?pal.head:'rgba(255,255,255,0.8)';
+      roundRect(ctx,s.x*CELL+1,s.y*CELL+1,CELL-2,CELL-2,3); ctx.fill();
+    });
+    flashCount++;
+    setTimeout(flashIn,80);
+  }
+  flashIn();
+}
+
+function drawParticles(){
+  particles.forEach(p=>{
+    ctx.save(); ctx.globalAlpha=Math.max(0,p.life);
+    ctx.fillStyle=p.color; ctx.beginPath();
+    ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill(); ctx.restore();
+  });
+}
+
+canvas.addEventListener('click', e=>{
+  const rect=canvas.getBoundingClientRect();
+  const mx=(e.clientX-rect.left)*(W/rect.width), my=(e.clientY-rect.top)*(H/rect.height);
+  const cx=Math.floor(mx/CELL), cy=Math.floor(my/CELL);
+  if(snake&&snake.some(s=>s.x===cx&&s.y===cy)){ explodeSnake(); return; }
+  if(!running&&!exploding) init();
+});
+
+document.addEventListener('keydown', e=>{
+  const map={ArrowUp:{x:0,y:-1},ArrowDown:{x:0,y:1},ArrowLeft:{x:-1,y:0},ArrowRight:{x:1,y:0},
+             w:{x:0,y:-1},s:{x:0,y:1},a:{x:-1,y:0},d:{x:1,y:0}};
+  const nd=map[e.key]; if(!nd) return;
+  if(!running&&!exploding){init();return;}
+  if(dir&&nd.x===-dir.x&&nd.y===-dir.y) return;
+  nextDir=nd; e.preventDefault();
+});
+
+document.getElementById('btn-start').addEventListener('click', ()=>init(false));
+document.getElementById('btn-pause').addEventListener('click', ()=>{
+  if(!running||exploding) return;
+  paused=!paused;
+  document.getElementById('btn-pause').textContent=paused?'Resume':'Pause';
+  document.getElementById('msg').textContent=paused?'Paused':'Steer with arrows/WASD — click the snake to 💥 & respawn!';
+});
+
+draw();
+</script>
+</body>
+</html>
